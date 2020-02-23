@@ -1,3 +1,9 @@
+import javax.swing.*;
+import javax.swing.border.*;
+import javax.swing.plaf.metal.MetalBorders;
+import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
@@ -6,6 +12,9 @@ import java.util.Set;
 import java.util.HashSet;
 import java.util.Scanner;
 import java.util.concurrent.Executors;
+
+import static javax.swing.UIManager.getInstalledLookAndFeels;
+import static javax.swing.UIManager.setLookAndFeel;
 
 /**
  * A multithreaded chat room server. When a client connects the server requests
@@ -18,7 +27,7 @@ import java.util.concurrent.Executors;
  * This is just a teaching example so it can be enhanced in many ways, e.g.,
  * better logging. Another is to accept a lot of fun commands, like Slack.
  */
-public class ChatServer {
+public class ChatServer extends JFrame{
 
     // All client names, so we can check for duplicates upon registration.
     private static Set<String> names = new HashSet<>();
@@ -26,20 +35,59 @@ public class ChatServer {
     // The set of all the print writers for all the clients, used for broadcast.
     private static Set<PrintWriter> writers = new HashSet<>();
 
-    public static void main(String[] args) throws Exception {
-        System.out.println("The chat server is running...");
-        var pool = Executors.newFixedThreadPool(500);
-        try (var listener = new ServerSocket(59001)) {
-            while (true) {
-                pool.execute(new Handler(listener.accept()));
+    private JPanel panel;
+    private GridBagLayout GBLayout;
+    private ServerHandlerThread serverThread = new ServerHandlerThread();
+    JTextArea activeUsersTextArea = new JTextArea(20,15);
+    JTextArea serverLogTextArea = new JTextArea(20,30);
+    JButton StartServerBtn = new JButton("Start Server");
+
+
+    public static void main(String[] args) {
+
+        try{
+            for (UIManager.LookAndFeelInfo info : getInstalledLookAndFeels()) {
+                if ("Nimbus".equals(info.getName())) {
+                    setLookAndFeel(info.getClassName());
+                    break;
+                }
+            }
+        }
+        catch (Exception e){
+            System.err.println(e);
+        }
+
+        try {
+            ChatServer frame = new ChatServer("Chat Server");
+            frame.setVisible(true);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    public class ServerHandlerThread extends Thread {
+
+        @Override
+        public void run() {
+            System.out.println("The chat server is running...");
+            var pool = Executors.newFixedThreadPool(500);
+            try (var listener = new ServerSocket(59001)) {
+                while (true) {
+                    pool.execute(new Handler(listener.accept()));
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
             }
         }
     }
 
+
     /**
      * The client handler task.
      */
-    private static class Handler implements Runnable {
+    private class Handler implements Runnable {
         private String name;
         private Socket socket;
         private Scanner in;
@@ -87,6 +135,8 @@ public class ChatServer {
                 for (PrintWriter writer : writers) {
                     writer.println("MESSAGE " + name + " has joined");
                 }
+                serverLogTextArea.append(name + " has joined\n");
+                activeUsersTextArea.append(name + "\n");
                 writers.add(out);
 
                 // Accept messages from this client and broadcast them.
@@ -98,25 +148,92 @@ public class ChatServer {
                     for (PrintWriter writer : writers) {
                         writer.println("MESSAGE " + name + ": " + input);
                     }
+                    serverLogTextArea.append(name + " has sent a message...\n");
                 }
             } catch (Exception e) {
-                System.out.println(e);
+                System.err.println(e);
             } finally {
                 if (out != null) {
                     writers.remove(out);
                 }
                 if (name != null) {
                     System.out.println(name + " is leaving");
+
                     names.remove(name);
                     for (PrintWriter writer : writers) {
                         writer.println("MESSAGE " + name + " has left");
+                    }
+                    serverLogTextArea.append(name + " has left\n");
+                    activeUsersTextArea.setText("");
+                    for(String name : names){
+                        activeUsersTextArea.append(name + "\n");
                     }
                 }
                 try {
                     socket.close();
                 } catch (IOException e) {
+                    System.err.println(e);
                 }
             }
         }
     }
+
+    public ChatServer(String title){
+            setTitle(title);
+            setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            setLocationByPlatform(false);
+            setSize(400, 500);
+            setResizable(false);
+            GBLayout = new GridBagLayout();
+            panel = new JPanel(GBLayout);
+            setContentPane(panel);
+            panel.setBackground(Color.white);
+            panel.setBorder(new EmptyBorder(5,5,5,5));
+
+            addComponent(StartServerBtn,0,0,2,1,new Insets(5,5,5,5),0,0,GridBagConstraints.CENTER,GridBagConstraints.CENTER);
+            StartServerBtn.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    try{
+                        serverThread.start();
+                        StartServerBtn.setEnabled(false);
+                    }
+                    catch (Exception ex){
+                        System.err.println(ex + ex.getMessage());
+                    }
+                }
+            });
+            JLabel activeUserLabel = new JLabel("Active Users: ");
+            activeUserLabel.setHorizontalAlignment(SwingConstants.CENTER);
+            activeUserLabel.setBorder(new LineBorder(Color.lightGray,5,true));
+            addComponent(activeUserLabel,1,0,1,1,new Insets(5,5,1,5),0,0,GridBagConstraints.BOTH,GridBagConstraints.CENTER);
+            activeUsersTextArea.setEditable(false);
+            addComponent(new JScrollPane(activeUsersTextArea),2,0,1,2,new Insets(1,5,5,5),1,1,GridBagConstraints.BOTH,GridBagConstraints.CENTER);
+
+            JLabel serverLogLabel = new JLabel("Server Log: ");
+            serverLogLabel.setHorizontalAlignment(SwingConstants.CENTER);
+            serverLogLabel.setBorder(new LineBorder(Color.lightGray,5,true));
+            addComponent(serverLogLabel,1,1,1,1,new Insets(5,5,1,5),0,0,GridBagConstraints.BOTH,GridBagConstraints.CENTER);
+            serverLogTextArea.setEditable(false);
+            addComponent(new JScrollPane(serverLogTextArea),2,1,1,2,new Insets(1,5,5,5),1,1,GridBagConstraints.BOTH,GridBagConstraints.CENTER);
+
+            this.pack();
+        }
+
+        private void addComponent(Component component, int row, int column, int width, int height,
+                                  Insets insets, double weightx, double weighty, int fill, int anchor){
+            GridBagConstraints constraints = new GridBagConstraints();
+
+            constraints.gridy = row;     //row to be placed in
+            constraints.gridx = column;     //column to be placed in
+            constraints.gridwidth = width;
+            constraints.gridheight = height;
+            constraints.insets = insets;
+            constraints.weightx = weightx;
+            constraints.weighty = weighty;
+            constraints.fill = fill;
+            constraints.anchor = anchor;
+
+            panel.add(component, constraints);
+        }
 }
